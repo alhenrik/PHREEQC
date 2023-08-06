@@ -1,0 +1,271 @@
+DATABASE C:\Program Files (x86)\USGS\Phreeqc Interactive 3.7.3-15968\database\llnl.dat
+###VALIDATION MODEL
+
+#Initial seawater composition 
+SOLUTION 1
+    temp      22
+    pH        8
+    pe        6.27118
+    units     ppm
+    density   1
+    Br        124.83
+    C(4)      134 as HCO3-
+    Ca        334.7
+    Cl        18641.25
+    K         349.58
+    Mg        1254.87
+    Na        9072.92
+    O(0)      0.5
+    S(6)      3291.25
+    -water    1 # kg
+
+#Composition of 1_SO after 1 month 	
+SOLUTION 2
+    temp      22
+    pH        8
+    pe        6.27118
+    units     ppm
+    density   1
+    Br        128.77
+    C(4)      152 as HCO3-
+    Ca        430.79
+    Cl        19239.96
+    K         338.91
+    Mg        1254.56
+    Na        9268.22
+    O(0)      0.5
+    S(6)      3526.97
+    -water    1 # kg
+
+#Equilibrium with atmospheric CO2 and O2 and precipitation selected species 
+EQUILIBRIUM_PHASES 1
+    CO2(g)    -3.397940009 1000
+    Goethite  0 0
+    Gypsum    0 0
+    Jarosite 0 0.0008
+    O2(g)    -0.745 1000 
+    Barite 0 0 
+    Chalcopyrite 0 0 
+    Sphalerite 0 0
+
+#Ion exchange/cation exchange capacity of the shale  
+EXCHANGE 1 
+X       1.543208571
+    -equilibrate with solution 2
+    -pitzer_exchange_gammas true
+
+#Implement H+ as an exchange species 
+EXCHANGE_SPECIES
+	H+ + X- = HX
+	-log_k	1.0
+	-llnl_gamma	9.0	
+
+#Implement precipitated goethite as a sorption surface  
+SURFACE 1
+    -equilibrate with solution 1
+    Hfo_sOH Goethite        equilibrium_phase 0.005  600 #(Appelo and Postma, 2005)
+    Hfo_wOH Goethite        equilibrium_phase 0.2
+
+#Implement uranyl as a sorption species from tipping.hurley database
+SURFACE_SPECIES
+
+        Hfo_sOH + UO2+2 = Hfo_sOUO2+ + H+
+        log_k  5.2                      # table 10.5
+
+        Hfo_wOH + UO2+2 = Hfo_wOUO2+ + H+
+        log_k  2.8                      # table 10.5
+
+#Implement rate equations for pyrite and uraninite
+RATES 1 
+
+ # Rates from data compiled by Williamson and Rimstidt 1994, GCA 58, 5443
+ #Modified from (Appelo and Postma, 2005)
+
+ Pyrite  
+ -start
+
+  9 A = 3.3 *m0                                                                                           # initial surface area
+ 10 if SI("Pyrite")>0 then goto 100                                                                       # step out when supersaturated...
+ 20 fH = mol("H+")
+ 30 fFe2 = (1 + tot("Fe(2)") / 1e-6)
+ 40 if mol("O2") < 1e-6 then goto 80
+ 50 rO2 = 10^-8.19 * mol("O2")^0.5 * fH^-0.11                                                             # ...rate with oxygen  
+ 60 rO2_Fe3 = 6.3e-4 * tot("Fe(3)")^0.92 * fFe2^-0.43                                                     # ...rate with oxygen and Fe3+
+ 70 goto 90
+ 80 rem                                                                                                   # rate with Fe3+ without oxygen, and for pH < 3...
+ 81 rFe3 = 1.9e-6 * tot("Fe(3)")^0.28 * fFe2^-0.52 * fH^-0.3
+ 90 rate = A * (m/m0)^0.67 * (rO2 + rO2_Fe3 + rFe3) * (1 - SR("Pyrite"))                                  # ...sum terms, zero at equilibrium
+ 100 save rate * time
+ -end
+
+Uraninite
+
+#Copied from https://github.com/HydrogeoIU/PHREEQC-Kinetic-Library/blob/master/PHREEQC%20script.txt (Zhang, Y., et. al., 2019)
+# from Palandri and Kharaka 2004
+# experimental condition range T=2-23C, neutral pH in DI water
+
+-start
+1 rem unit should be mol,kgw-1 and second-1
+2 rem parm(1) is surface area in the unit of m2/kgw
+3 rem calculation of surface area can be found in the note 
+4 rem M is current moles of minerals. M0 is the initial moles of minerals
+5 rem parm(2) is a correction factor
+10 rem acid solution parameters
+11 a1=0
+12 E1=0
+13 n1=0
+20 rem neutral solution parameters
+21 a2=4.33E-03
+22 E2=32070
+30 rem base solution parameters
+31 a3=0
+32 E3=0
+33 n2=0
+36 rem rate=0 if no minerals and undersaturated
+40 SR_mineral=SR("Uraninite")
+41 if (M<0) then goto 200
+42 if (M=0 and SR_mineral<1) then goto 200
+43 if (M0<=0) then SA=PARM(1) else SA=PARM(1)*(M/M0)^0.67
+50 if (SA<=0) then SA=1
+60 R=8.31451
+75 Rate1=a1*EXP(-E1/R/TK)*ACT("H+")^n1  #acid rate expression
+80 Rate2=a2*EXP(-E2/R/TK)               #neutral rate expression
+85 Rate3=a3*EXP(-E3/R/TK)*ACT("H+")^n2    #base rate expression
+90 Rate=(Rate1+Rate2+Rate3)*(1-Sr_mineral)*SA*parm(2)
+100 moles= rate*Time
+200 save moles
+-end
+
+#Input for solving the rate equations
+KINETICS 1
+Pyrite
+    -formula  Fe0.952717626Cu0.004083524Zn0.016174643Mn0.0110135Ba0.0160107144S2  1
+    -m        0.035839307
+    -m0       0.035839307
+    -parms    3.01995172e-08 2.818382e-05 -0.5 0.5 0.5
+    -tol      1e-08
+Calcite
+    -formula  Calcite  1
+    -m        0.011989581
+    -m0       0.011989581
+    -parms    250 0.6
+    -tol      1e-08
+K-feldspar
+    -formula  K-feldspar  1
+    -m        0.049576691
+    -m0       0.049576691
+    -parms    6.41 0.1
+    -tol      1e-08
+Organic_C
+    -formula  C
+    -m        0.516666667
+    -m0       0.516666667
+    -tol      1e-08
+
+Uraninite
+-m0 0.00002940819 m 0.00002940819
+-parms 90 3.84e-6 #60 fungerte tålbart
+-formula UO2
+-cvode true
+
+#Implement timesteps and total time in seconds
+
+#-steps       12096000 in 140 steps # 5 months
+#-steps	315360000  in 50 steps # 10 year 
+#-steps	473353890   in 50 steps # 15 year
+#-steps	157784630 in 50 steps # 5 year
+#-steps	63113852 in 10 steps # 2 years 
+#-steps	94670778 in 50 steps # 3 years 
+#-steps	946080000 in 100 steps# # 30 year 
+#-steps	1576800000 in 100 steps# # 50 year 
+#-steps       31536000  in 20 steps # 1 year 
+#-steps       9676800 in 10 steps # 4 months 
+#-steps	630720000 in 10 steps
+-step       26611200  in 12 steps # 11 months
+#-steps       9676800 in 12 steps # 112 days
+INCREMENTAL_REACTIONS true
+
+
+#Plots selected parameteres
+
+USER_GRAPH 1
+    -headings               time pH SO42-
+    -axis_titles            "Days" "pH" "SO42- [mg/L]"
+    -chart_title            "Change in pH and SO42-"
+    -initial_solutions      false
+    -connect_simulations    true
+    -plot_concentration_vs  x
+  -start
+10 graph_x total_time/(3600*24)
+20 graph_y -LA("H+")
+30 GRAPH_sy tot("S(6)") * 96.06e3 - 3291.25
+  -end
+    -active                 true
+
+USER_GRAPH 2
+    -headings               time pH Ca2+
+    -axis_titles            "Days" "pH" "Ca2+ [mg/L]"
+    -chart_title            "Change in pH and Ca2+"
+    -initial_solutions      false
+    -connect_simulations    true
+    -plot_concentration_vs  x
+  -start
+10 graph_x total_time/(3600*24)
+20 graph_y -LA("H+")
+30 GRAPH_sy tot("Ca") * 40.08e3 -334.7
+  -end
+    -active                 true
+
+USER_GRAPH 3
+    -headings               time pH O2
+    -axis_titles            "Days" "pH" "O2 [mg/L]"
+    -chart_title            "Change in pH and O2"
+    -initial_solutions      false
+    -connect_simulations    true
+    -plot_concentration_vs  x
+  -start
+10 graph_x total_time/(3600*24)
+20 graph_y -LA("H+")
+30 GRAPH_sy tot("O(0)") * 15.999e3
+  -end
+    -active                 false
+
+
+USER_GRAPH 4
+    -headings               time pH U
+    -axis_titles            "Years" "pH" "U [ug/L]"
+    -chart_title            "Change in pH and U"
+    -initial_solutions      false
+    -connect_simulations    true
+    -plot_concentration_vs  x
+  -start
+10 graph_x total_time/(3600*24*365)
+20 graph_y -LA("H+")
+30 GRAPH_sy tot("U") * 238.02891e6
+  -end
+    -active                 true
+
+#plots the results to an excel-file
+
+#SELECTED_OUTPUT
+#-file Model2_sea_SI_gypsum.xls
+#-reset false
+#-solution true
+
+#USER_PUNCH
+#-headings Time Ca(ppm) U(ug/L) pH SO4(ppm) kin_pyr
+#-headings Time Cu(ug/L) Ba(ug/L) Zn(ug/L) Mn(ug/L)
+#-headings Time SI"gypsum"
+#8 PUNCH TOTAL_TIME
+#9 PUNCH SI("Gypsum")
+#10 REM convert Ca from molality to ppm
+#30 PUNCH TOTMOLE("Ca")*40.078e3 - 334.7 #mg/L
+#50 PUNCH TOTMOLE("U")*238.02891e6 #ug/L 
+#60 PUNCH -LA("H+")
+#70 PUNCH TOTMOLE("S(6)") *96.06e3 - 3291.25 #mg/L 
+#80 PUNCH KIN("pyrite")
+#90 PUNCH KIN("Calcite") 
+#100 PUNCH TOTMOLE("Cu")*63.546e6 #ug/L
+#110 PUNCH TOTMOLE("Ba") * 137.327e6 #ug/L
+#120 PUNCH TOTMOLE("Zn") * 65.381e6#ug/L
+#130 PUNCH TOTMOLE("Mn")* 54.938044e6 #ug/L 
